@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- A delivery message that reaches an agent just as another turn starts joins that turn where the agent's provider can steer it, instead of interrupting it.
+
 ## 0.2.2 - 2026-11-01
 
 ### Fixed
