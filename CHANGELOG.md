@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- The skill tells an agent that delegates a move to keep it inside its own turn, because the files go when that turn ends, even while a subagent is still working.
+
 ## 0.2.2 - 2026-11-01
 
 ### Fixed
