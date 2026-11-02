@@ -135,7 +135,7 @@ ssh HOST 'umask 077; mkdir -p ~/.config/app && touch ~/.config/app/token && chmo
 
 `request_status` gives `state`, `keys`, `written`, `tamper` and `errorCode`, and while the files exist, `files` (key → path) and `deleteBy`. Never a value. If it says `delivered`, move the files at those paths as you would from the message, each quoted for the shell first. If it says `pending`, the form is still waiting: the user has not submitted, or the form refused what they sent and shows why. Either way the pill in this chat opens it; do not cancel and ask again, or the user types everything twice.
 
-Nothing comes when the files go the ordinary way: when you delete them or call `release_secret`, or at the end of your turn. A request you cancel ends without a message.
+Nothing comes when the files go the ordinary way: when you delete them or call `release_secret`, or at the end of your turn. A request you cancel ends without a message. When you are archived, your open requests close and their files go, also without a message; if you are brought back, make a new request.
 
 ## When a request is refused at once
 

@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- Archiving an agent closes its requests. A pending request stops waiting and its key is wiped, and delivered files are deleted at once instead of at their deadline. A later submission or expiry no longer leaves a message waiting for that agent.
+
 ## 0.2.2 - 2026-11-01
 
 ### Fixed

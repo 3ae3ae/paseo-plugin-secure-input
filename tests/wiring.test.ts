@@ -1900,6 +1900,33 @@ describe("hooks on the host", () => {
     expect(daemon.sent).toEqual([{ agentId: "agent-2", text: continuationText(plugin.registry.get(ended["agent-2"] as string) as RequestRecord, plugin.files.drop) as string }]);
   });
 
+  it("enqueues no message when archiving pending and delivered requests, including at their later expiry", async () => {
+    const plugin = await started();
+    const daemon = fakeDaemon({ "agent-1": { status: "running" } });
+    await plugin.before("agent.session_open", opening("agent-1", tempDir()), daemon.port);
+    const identity = { agentId: "agent-1", cwd: tempDir(), title: null };
+    const delivered = (await plugin.registry.create(identity, asking)).requestId;
+    expect(await submit(plugin.registry, delivered, [{ key: "A", value: CANARY }])).toEqual({ ok: true, state: "delivered" });
+    const pending = (await plugin.registry.create(identity, asking)).requestId;
+    await plugin.runtime.settled();
+    expect(await plugin.outbox.pending()).toBe(1);
+    const enqueued = vi.spyOn(plugin.outbox, "enqueue");
+
+    await plugin.emit("agent.archived", { agent: { id: "agent-1" }, archivedAt: "2026-10-11T00:00:00Z" }, daemon.port);
+    expect(plugin.registry.get(pending)?.state).toBe("cancelled");
+    expect(plugin.registry.get(delivered)).toMatchObject({ state: "released", releasedBy: "archived" });
+    const clock = vi.spyOn(Date, "now").mockReturnValue(Date.now() + 9 * 60 * 60 * 1000);
+    try {
+      await plugin.registry.expire();
+      await plugin.runtime.settled();
+      expect(enqueued).not.toHaveBeenCalled();
+      expect(await plugin.outbox.pending()).toBe(0);
+      expect(daemon.sent).toEqual([]);
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
   it("returns the original request for a payload that lacks what the hook reads", async () => {
     const plugin = await started();
     const daemon = fakeDaemon({});
@@ -1967,7 +1994,7 @@ describe("the guard of the hooks", () => {
     };
     registerHooks(fake.host, {
       runtime: { attach: broken, turnEnded: broken, agentArchived: broken },
-      turns: { turnStarted: broken, turnEnded: broken },
+      turns: { turnStarted: broken, turnEnded: broken, agentArchived: broken },
       tools: () => [],
       failed: (hook, code) => void failures.push(`${hook}:${code}`),
     });
@@ -1986,7 +2013,7 @@ describe("the guard of the hooks", () => {
     const failures: string[] = [];
     registerHooks(fake.host, {
       runtime: { attach: () => undefined, turnEnded: () => undefined, agentArchived: () => undefined },
-      turns: { turnStarted: () => undefined, turnEnded: async () => undefined },
+      turns: { turnStarted: () => undefined, turnEnded: async () => undefined, agentArchived: async () => undefined },
       tools: () => {
         throw new SecureInputError("service_unavailable", "the tools cannot be built");
       },
@@ -1997,24 +2024,29 @@ describe("the guard of the hooks", () => {
     expect(failures).toEqual(["agent.session_open:service_unavailable"]);
   });
 
-  it("tells a failure of the turn's deletions by its code, and still asks for what waits for the agent", async () => {
+  it.each([
+    ["agent.turn_ended", "turnEnded"],
+    ["agent.archived", "agentArchived"],
+  ] as const)("tells a failure of %s by its code, and still calls the runtime", async (event, method) => {
     const fake = fakeHost();
     const failures: string[] = [];
     const flushed: string[] = [];
     registerHooks(fake.host, {
-      runtime: { attach: () => undefined, turnEnded: (agentId) => void flushed.push(agentId), agentArchived: () => undefined },
+      runtime: { attach: () => undefined, turnEnded: (agentId) => void flushed.push(`turnEnded:${agentId}`), agentArchived: (agentId) => void flushed.push(`agentArchived:${agentId}`) },
       turns: {
         turnStarted: () => undefined,
-        turnEnded: async () => {
+        turnEnded: async () => undefined,
+        agentArchived: async () => undefined,
+        [method]: async () => {
           throw new SecureInputError("write_failed", "the files could not be deleted");
         },
       },
       tools: () => [],
       failed: (hook, code) => void failures.push(`${hook}:${code}`),
     });
-    await expect(fake.emit("agent.turn_ended", { agent: { id: "agent-1" }, turnId: "t-1", outcome: { kind: "completed" }, timeline: [] }, fakeDaemon({}).port)).resolves.toBeUndefined();
-    expect(failures).toEqual(["agent.turn_ended:write_failed"]);
-    expect(flushed).toEqual(["agent-1"]);
+    await expect(fake.emit(event, { agent: { id: "agent-1" }, turnId: "t-1", outcome: { kind: "completed" }, timeline: [], archivedAt: "2026-10-11T00:00:00Z" }, fakeDaemon({}).port)).resolves.toBeUndefined();
+    expect(failures).toEqual([`${event}:write_failed`]);
+    expect(flushed).toEqual([`${method}:agent-1`]);
   });
 });
 
@@ -2169,16 +2201,19 @@ describe("lifetimes through the hooks", () => {
     expect(existsSync(join(set, "A"))).toBe(true);
   });
 
-  it("never lets a turn's end that cannot finish hold the hook beyond its bound", async () => {
+  it.each([
+    ["agent.turn_ended", "turnEnded"],
+    ["agent.archived", "agentArchived"],
+  ] as const)("never lets %s that cannot finish hold the hook beyond its bound", async (event, method) => {
     expect(RELEASE_WAIT_MS).toBe(5_000);
     const hooked = (releaseWaitMs?: number) => {
       const fake = fakeHost();
       const flushed: string[] = [];
       const failures: string[] = [];
       registerHooks(fake.host, {
-        runtime: { attach: () => undefined, turnEnded: (agentId) => void flushed.push(agentId), agentArchived: () => undefined },
-        // A turn's end whose deletions never end, as on a disk that stalls.
-        turns: { turnStarted: () => undefined, turnEnded: () => new Promise<void>(() => undefined) },
+        runtime: { attach: () => undefined, turnEnded: (agentId) => void flushed.push(`turnEnded:${agentId}`), agentArchived: (agentId) => void flushed.push(`agentArchived:${agentId}`) },
+        // Deletions that never end, as on a disk that stalls.
+        turns: { turnStarted: () => undefined, turnEnded: async () => undefined, agentArchived: async () => undefined, [method]: () => new Promise<void>(() => undefined) },
         tools: () => [],
         failed: (hook, code) => void failures.push(`${hook}:${code}`),
         releaseWaitMs,
@@ -2187,9 +2222,10 @@ describe("lifetimes through the hooks", () => {
     };
 
     const quick = hooked(SHORT);
-    expect(await promptly(quick.fake.emit("agent.turn_ended", turnEnded("t-1"), fakeDaemon({}).port), 1000)).toBeUndefined();
-    // What waits for the agent is asked for all the same, and a wait that ran out is no failure: the deletions go on.
-    expect(quick.flushed).toEqual(["agent-1"]);
+    const payload = { ...turnEnded("t-1"), archivedAt: "2026-10-11T00:00:00Z" };
+    expect(await promptly(quick.fake.emit(event, payload, fakeDaemon({}).port), 1000)).toBeUndefined();
+    // The runtime is called all the same, and a wait that ran out is no failure: the deletions go on.
+    expect(quick.flushed).toEqual([`${method}:agent-1`]);
     expect(quick.failures).toEqual([]);
 
     // Its own bound, unless a test gives one: five seconds, and not a millisecond less.
@@ -2197,7 +2233,7 @@ describe("lifetimes through the hooks", () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     try {
       let ended = false;
-      const emitted = own.fake.emit("agent.turn_ended", turnEnded("t-1"), fakeDaemon({}).port).then(() => {
+      const emitted = own.fake.emit(event, payload, fakeDaemon({}).port).then(() => {
         ended = true;
       });
       await vi.advanceTimersByTimeAsync(RELEASE_WAIT_MS - 1);
@@ -2206,7 +2242,7 @@ describe("lifetimes through the hooks", () => {
       await vi.advanceTimersByTimeAsync(1);
       await emitted;
       expect(ended).toBe(true);
-      expect(own.flushed).toEqual(["agent-1"]);
+      expect(own.flushed).toEqual([`${method}:agent-1`]);
     } finally {
       vi.useRealTimers();
     }

@@ -97,7 +97,7 @@ describe("the other values both halves hold", () => {
     // this fails and the person who did it looks here.
     const source = readFileSync(join(import.meta.dirname, "..", "server", "paseo", "hooks.ts"), "utf8");
     const remembered = [...source.matchAll(/deps\.failed\("[a-z_.]+", (.+?)\);/g)].map((match) => match[1] as string);
-    expect(remembered).toEqual(["failureCode(error)", "failureCode(error)", "failureCode(error)", "failureCode(error)", "failureCode(error)"]);
+    expect(remembered).toEqual(["failureCode(error)", "failureCode(error)", "failureCode(error)", "failureCode(error)", "failureCode(error)", "failureCode(error)"]);
     expect(source.match(/deps\.failed\(/g)).toHaveLength(remembered.length);
   });
 });

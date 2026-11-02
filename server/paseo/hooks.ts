@@ -8,9 +8,9 @@ import { TOOL_NAMES } from "./tools";
 export type SessionOpenRequest = PluginBeforeRequests["agent.session_open"];
 
 /**
- * How long the handler of a turn's end waits at most for the sets that turn releases (`Registry.turnEnded`). Removing a
- * set is a few system calls; the bound is for a disk that stalls, and it ends the wait, not the removal, which goes on
- * in the registry's queue. Five seconds keeps an event handler that the daemon waits for from being held for longer.
+ * How long the handler of a turn's end, or of an agent's archiving, waits at most for what it closes (`Registry.turnEnded`,
+ * `Registry.agentArchived`). Removing a set is a few system calls; the bound is for a disk that stalls, and it ends the
+ * wait, not the removal, which goes on in the registry's queue. Five seconds keeps an event handler that the daemon waits for from being held for longer.
  */
 export const RELEASE_WAIT_MS = 5_000;
 
@@ -29,8 +29,8 @@ export function withTools(request: SessionOpenRequest, tools: readonly AgentTool
 
 export interface HookDeps {
   runtime: Pick<Runtime, "attach" | "turnEnded" | "agentArchived">;
-  /** What a turn's start and end do to the sets of the agent's delivered requests: they arm the deletion, and fire it. */
-  turns: Pick<Registry, "turnStarted" | "turnEnded">;
+  /** What a turn's start and end do to the sets of the agent's delivered requests (they arm the deletion, and fire it), and what its archiving does to its open requests. */
+  turns: Pick<Registry, "turnStarted" | "turnEnded" | "agentArchived">;
   /** The plugin's tools, built for the session that opens. One that cannot be built is a failure of the hook. */
   tools(): AgentToolDefinition[];
   /** Remembers, for the diagnostics, that a hook or an event handler failed. A code, never a message. */
@@ -50,7 +50,7 @@ export function failureCode(error: unknown): string {
  * reject, and the session-open hook waits for nothing: it builds the tools and hands them over, and a call waits for the
  * start-up itself (`agentTools`). Any failure of the hook (tools that cannot be built, a payload that is not what the SDK
  * declares) is remembered as a code, and the request goes on as it came. The handlers of events are held to the same
- * rule, which the daemon only logs for; the one handler that waits, a turn's end for the sets it releases, waits within
+ * rule, which the daemon only logs for; the two handlers that wait, a turn's end and an agent's archiving, wait within
  * `RELEASE_WAIT_MS`.
  */
 export function registerHooks(host: Pick<PluginServerContext, "before" | "on">, deps: HookDeps): void {
@@ -93,12 +93,18 @@ export function registerHooks(host: Pick<PluginServerContext, "before" | "on">, 
     }
   });
 
-  // An archived agent is gone for good, so what waits for it is dropped. `agent.closed` is deliberately not used for
-  // this: what "closed" means for an agent that can be opened again could not be established.
-  host.on("agent.archived", ({ agent }, { paseo }) => {
+  // An archived agent has no use for what it asked for, so its requests close and what waits for it is dropped. `agent.closed`
+  // is deliberately not used for this: what "closed" means for an agent that can be opened again could not be established.
+  host.on("agent.archived", async (event, { paseo }) => {
     try {
       deps.runtime.attach(paseo);
-      deps.runtime.agentArchived(agent.id);
+      const agentId = event.agent.id;
+      try {
+        await within(deps.releaseWaitMs ?? RELEASE_WAIT_MS, () => deps.turns.agentArchived(agentId));
+      } catch (error) {
+        deps.failed("agent.archived", failureCode(error));
+      }
+      deps.runtime.agentArchived(agentId);
     } catch (error) {
       deps.failed("agent.archived", failureCode(error));
     }

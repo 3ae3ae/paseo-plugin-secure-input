@@ -445,6 +445,24 @@ describe("fulfill, the set it writes", () => {
 });
 
 describe("closing without a submission", () => {
+  it("cancels an archived agent's pending request, wipes its key and refuses a later submission", async () => {
+    const h = harness();
+    const { requestId } = await h.registry.create(agent(), asking);
+    const other = (await h.registry.create(agent("agent-2"), asking)).requestId;
+    const key = keysOf(h.registry).get(requestId) as Uint8Array;
+    const envelope = sealed(h.registry, requestId, [{ key: "API_KEY", value: CANARY }]);
+
+    await h.registry.agentArchived("agent-1");
+    expect(h.registry.get(requestId)).toMatchObject({ state: "cancelled", tamper: false });
+    expect(stored(h.dataDir).find((record) => record.id === requestId)?.state).toBe("cancelled");
+    expect(keysOf(h.registry).has(requestId)).toBe(false);
+    expect(key.every((byte) => byte === 0)).toBe(true);
+    expect(await h.registry.fulfill(requestId, envelope)).toEqual({ ok: false, code: "request_closed", retryable: false });
+    expect(h.registry.get(other)?.state).toBe("pending");
+    expect(keysOf(h.registry).has(other)).toBe(true);
+    expect(h.told).toEqual([`pending ${requestId}`, `pending ${other}`, `cancelled ${requestId}`]);
+  });
+
   it("declines, cancels only for the owner, and never calls a late submission tampering", async () => {
     const { registry } = harness();
     const declined = await registry.create(agent("a"), asking);
@@ -831,6 +849,7 @@ describe("start-up, hostile state", () => {
       { ...good, id: idOf(2), ...deliveredParts, state: "released", releasedBy: "turn" },
       { ...good, id: idOf(3), state: "rejected", errorCode: "write_failed" },
       { ...good, id: idOf(4), state: "expired", expiredBy: "time" },
+      { ...good, id: idOf(5), ...deliveredParts, state: "released", releasedBy: "archived" },
     ]);
     const { registry } = harness(dataDir);
     await registry.load();
@@ -840,6 +859,7 @@ describe("start-up, hostile state", () => {
     expect(registry.get(idOf(2))).toMatchObject({ state: "released", releasedBy: "turn" });
     expect(registry.get(idOf(3))).toMatchObject({ state: "rejected", errorCode: "write_failed" });
     expect(registry.get(idOf(4))).toMatchObject({ state: "expired", expiredBy: "time" });
+    expect(registry.get(idOf(5))).toMatchObject({ state: "released", releasedBy: "archived" });
   });
 
   it.each(refused)("drops a record with %s and loads the one that is fine", async (_name, damage) => {

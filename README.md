@@ -75,6 +75,7 @@ Each delivery is `<data>/drop/si-secret-<requestId>/` with a file per key you fi
 
 - The agent calls `release_secret`, or deletes the directory itself.
 - The end, with any outcome, of the agent's turn that its delivery message starts.
+- The agent is archived.
 - 15 minutes after the write; on a machine that slept through that, within a minute of waking.
 - The plugin starts, and sweeps `drop/`.
 - The plugin stops, and tries to sweep `drop/`.

@@ -36,11 +36,12 @@ export type ExpiredBy = (typeof EXPIRED_BY)[number];
 
 /**
  * How the files of a delivered request came to be gone, and so the request `released`: the agent released them or took
- * the set away itself (`agent`), the turn the delivery message started ended (`turn`), their time was up (`time`), the
- * plugin started again (`restart`) or stopped (`stop`), or the human deleted every set (`human`). A delivery message
- * that still waits says the files are gone for the last four, and is dropped for the first two (see `continuationText`).
+ * the set away itself (`agent`), the turn the delivery message started ended (`turn`), the agent was archived (`archived`),
+ * their time was up (`time`), the plugin started again (`restart`) or stopped (`stop`), or the human deleted every set
+ * (`human`). A delivery message that still waits says the files are gone for the last four, and is dropped for the first
+ * three (see `continuationText`).
  */
-export const RELEASED_BY = ["agent", "turn", "time", "restart", "stop", "human"] as const;
+export const RELEASED_BY = ["agent", "turn", "archived", "time", "restart", "stop", "human"] as const;
 export type ReleasedBy = (typeof RELEASED_BY)[number];
 
 /** The keys a set was written with, in the order they were written: valid keys, of which no two name one file. */
