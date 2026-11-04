@@ -50,7 +50,7 @@ const NOT_ATTACHED = "the plugin is not attached to the daemon yet; retry in a f
 export interface DaemonAgent {
   readonly status: string | null;
   refresh(): Promise<unknown>;
-  send(text: string): Promise<void>;
+  send(text: string, options: { activeTurnBehavior: "steer" }): Promise<void>;
   readonly timeline: { append(item: TimelineItem): Promise<unknown> };
 }
 
@@ -230,7 +230,8 @@ export class Runtime implements AgentPort {
   }
 
   async send(agentId: string, text: string): Promise<void> {
-    await this.api().agents.ref(agentId).send(text);
+    // A turn can begin after the idle check. Unasked, the daemon replaces it; a provider that can steer takes the message into it.
+    await this.api().agents.ref(agentId).send(text, { activeTurnBehavior: "steer" });
   }
 
   /**

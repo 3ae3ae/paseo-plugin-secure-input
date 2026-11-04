@@ -73,6 +73,7 @@ interface FakeDaemonBehaviour {
 function fakeDaemon(agents: Record<string, FakeAgent | undefined>, behaviour: FakeDaemonBehaviour = {}) {
   const appended: Array<{ agentId: string; item: TimelineItem }> = [];
   const sent: Array<{ agentId: string; text: string }> = [];
+  const sendOptions: unknown[] = [];
   // Cards and messages: whatever the plugin appended or sent is searched for what the test typed, when the test is over.
   said.push(() => [...appended.map((entry) => JSON.stringify(entry)), ...sent.map((entry) => JSON.stringify(entry))]);
   const port: DaemonPort = {
@@ -87,7 +88,10 @@ function fakeDaemon(agents: Record<string, FakeAgent | undefined>, behaviour: Fa
             handle.status = agent.status;
             return null;
           },
-          send: async (text: string) => void sent.push({ agentId, text }),
+          send: async (text: string, options?: unknown) => {
+            sent.push({ agentId, text });
+            sendOptions.push(options);
+          },
           timeline: {
             append: async (item: TimelineItem): Promise<unknown> => {
               if (behaviour.append) return behaviour.append(agentId, item);
@@ -100,7 +104,7 @@ function fakeDaemon(agents: Record<string, FakeAgent | undefined>, behaviour: Fa
       },
     },
   };
-  return { port, appended, sent, agents };
+  return { port, appended, sent, sendOptions, agents };
 }
 
 type Handler = (input: never, context: never) => unknown;
@@ -882,6 +886,16 @@ describe("Runtime", () => {
   });
 
   describe("messages to the agent", () => {
+    it("asks for a message to join a turn that began after the idle check, rather than replace it", async () => {
+      const { runtime, registry } = world();
+      const daemon = fakeDaemon({ "agent-1": { status: "idle" } });
+      runtime.attach(daemon.port);
+      const { requestId } = await registry.create({ agentId: "agent-1", cwd: tempDir(), title: null }, asking);
+      await registry.decline(requestId);
+      await runtime.settled();
+      expect(daemon.sendOptions).toEqual([{ activeTurnBehavior: "steer" }]);
+    });
+
     it("tells an idle agent the outcome once, with exactly the fixed text, and waits for a busy one to finish its turn", async () => {
       const { runtime, registry, files } = world();
       const cwd = tempDir();
@@ -1113,8 +1127,8 @@ describe("Runtime", () => {
             return {
               ...handle,
               status: "idle",
-              send: async (text) => {
-                await handle.send(text);
+              send: async (text, options) => {
+                await handle.send(text, options);
                 told();
               },
             };
