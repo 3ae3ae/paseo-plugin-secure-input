@@ -818,6 +818,22 @@ export class Registry {
     });
   }
 
+  /**
+   * The agent was archived. Its pending requests close as `cancelled`, which wipes their keys, and its delivered sets are
+   * released as `archived`, with no message for either. A set that cannot be removed stays delivered and is tried again
+   * like any other. Once shutdown has begun nothing further is closed here: the stop takes it.
+   */
+  agentArchived(agentId: string): Promise<void> {
+    return this.serial(async () => {
+      for (const record of [...this.records.values()]) {
+        if (this.stopped) return;
+        if (record.agentId !== agentId) continue;
+        if (record.state === "pending") await this.closePending(record.id, "cancelled");
+        else if (record.state === "delivered") await this.releaseSet(record, "archived");
+      }
+    });
+  }
+
   private async closePending(id: string, state: "declined" | "cancelled" | "expired"): Promise<RequestRecord> {
     const record = this.require(id);
     if (record.state !== "pending") throw new SecureInputError("request_closed");

@@ -21,7 +21,7 @@ The agent has four tools, which Paseo serves beside its own: `request_secret` to
 
 ## When the files go
 
-The plugin writes directories of mode 0700 with files of mode 0600, one per key you filled in. It tries to delete them when the agent releases the set, at the end of the agent's turn that its message starts, 15 minutes after the write, and at every start and stop of the plugin. A crash or a failed removal can leave files behind until a later attempt succeeds. Deletion does not overwrite their content.
+The plugin writes directories of mode 0700 with files of mode 0600, one per key you filled in. It tries to delete them when the agent releases the set, at the end of the agent's turn that its message starts, when the agent is archived, 15 minutes after the write, and at every start and stop of the plugin. A crash or a failed removal can leave files behind until a later attempt succeeds. Deletion does not overwrite their content.
 
 ## What it does not protect against
 

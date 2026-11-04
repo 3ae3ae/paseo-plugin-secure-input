@@ -252,6 +252,7 @@ describe("the names in the documents", () => {
     const EVENT: Record<(typeof RELEASED_BY)[number], string> = {
       agent: "The agent calls `release_secret`, or deletes the directory itself",
       turn: "The end, with any outcome, of the agent's turn",
+      archived: "The agent is archived",
       time: "minutes after the write",
       restart: "The plugin starts",
       stop: "The plugin stops",
@@ -667,8 +668,8 @@ describe("what comes back, in the skill", () => {
       if (text === null) silent.push(by);
       else expect(listed, `files deleted by ${by}`).toContain(text);
     }
-    // The agent took the files, or was told of them and had its turn.
-    expect(silent).toEqual(["agent", "turn"]);
+    // The agent took the files, was told of them and had its turn, or was archived.
+    expect(silent).toEqual(["agent", "turn", "archived"]);
     for (const expiredBy of [undefined, ...EXPIRED_BY]) {
       expect(listed, `expired by ${expiredBy ?? "a version that did not say"}`).toContain(told(stored("expired", expiredBy === undefined ? {} : { expiredBy })));
     }

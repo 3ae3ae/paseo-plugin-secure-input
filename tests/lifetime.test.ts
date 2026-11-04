@@ -281,6 +281,89 @@ describe("the end of the turn the message started, while the queue is busy", () 
   });
 });
 
+describe("an archived agent", () => {
+  it("releases every delivered set of that agent as archived, with no continuation, and leaves other agents alone", async () => {
+    const h = harness();
+    const first = await deliverOne(h);
+    const second = await deliverOne(h);
+    const other = await deliverOne(h, "agent-2");
+    const hooks = hooked(h.registry);
+    await hooks.emit("agent.archived", { agent: hookAgent("agent-1"), archivedAt: "2026-10-11T00:00:00Z" });
+    for (const id of [first, second]) {
+      expect(h.registry.get(id)).toMatchObject({ state: "released", releasedBy: "archived" });
+      expect(stored(h.dataDir).find((record) => record.id === id)).toMatchObject({ state: "released", releasedBy: "archived" });
+      expect(existsSync(setPath(h.dropRoot, id))).toBe(false);
+      expect(continuationText(h.registry.get(id) as RequestRecord, h.dropRoot)).toBeNull();
+    }
+    expect(h.registry.get(other)?.state).toBe("delivered");
+    expect(readdirSync(h.dropRoot)).toEqual([`si-secret-${other}`]);
+    expect(hooks.failures).toEqual([]);
+    const told = h.told.length;
+    await h.registry.agentArchived("agent-1");
+    expect(h.told).toHaveLength(told);
+  });
+
+  it("keeps a stuck set delivered, continues with the next set, and retries at the deadline", async () => {
+    const h = harness();
+    const stuck = await deliverOne(h);
+    const next = await deliverOne(h);
+    const set = setPath(h.dropRoot, stuck);
+    chmodSync(set, 0o500);
+    try {
+      await h.registry.agentArchived("agent-1");
+      expect(h.registry.get(stuck)?.state).toBe("delivered");
+      expect(stored(h.dataDir).find((record) => record.id === stuck)?.state).toBe("delivered");
+      expect(existsSync(join(set, "API_KEY"))).toBe(true);
+      expect(h.registry.health().drop).toBe("failing");
+      expect(h.registry.get(next)).toMatchObject({ state: "released", releasedBy: "archived" });
+    } finally {
+      chmodSync(set, 0o700);
+    }
+    h.clock.now = h.registry.get(stuck)?.deleteBy as number;
+    await h.registry.expire();
+    expect(h.registry.get(stuck)).toMatchObject({ state: "released", releasedBy: "time" });
+    expect(existsSync(set)).toBe(false);
+    expect(h.registry.health().drop).toBe("ok");
+  });
+
+  it("waits in the queue for a submission already being written, then releases its set", async () => {
+    const h = harness();
+    const { requestId } = await h.registry.create(agent(), asking);
+    const held = gate();
+    let reached = false;
+    h.drop.onWrite = () => {
+      reached = true;
+      return held.held;
+    };
+    try {
+      const written = h.registry.fulfill(requestId, sealed(h.registry, requestId, [{ key: "API_KEY", value: CANARY }]));
+      await vi.waitFor(() => expect(reached).toBe(true), { timeout: 5000 });
+      const archived = h.registry.agentArchived("agent-1");
+      expect(h.registry.get(requestId)?.state).toBe("pending");
+      held.open();
+      expect(await written).toEqual({ ok: true, state: "delivered" });
+      await archived;
+      expect(h.registry.get(requestId)).toMatchObject({ state: "released", releasedBy: "archived" });
+      expect(existsSync(setPath(h.dropRoot, requestId))).toBe(false);
+    } finally {
+      held.open();
+    }
+  });
+
+  it("closes nothing once shutdown has begun", async () => {
+    const h = harness();
+    const delivered = await deliverOne(h);
+    const pending = (await h.registry.create(agent(), asking)).requestId;
+    const releases = vi.spyOn(h.drop, "release");
+    h.registry.stop();
+    await h.registry.agentArchived("agent-1");
+    expect(releases).not.toHaveBeenCalled();
+    expect(h.registry.get(delivered)?.state).toBe("delivered");
+    expect(existsSync(setPath(h.dropRoot, delivered))).toBe(true);
+    expect(h.registry.get(pending)?.state).toBe("pending");
+  });
+});
+
 describe("release_secret", () => {
   it("releases on request: the owner only, once, and refuses a request with no files", async () => {
     const h = harness();
@@ -777,7 +860,7 @@ describe("a release or a look under way when the stop begins", () => {
     expect(await looked).toMatchObject({ id, state: "delivered" });
   });
 
-  it("begins no further release of a turn's end once the stop has begun: the second of two armed sets is left to the stop", async () => {
+  it.each(["turnEnded", "agentArchived"] as const)("begins no further release of %s once the stop has begun: the second of two armed sets is left to the stop", async (method) => {
     const h = harness(tempDir(), { shutdownBoundMs: 50 });
     const first = await deliverOne(h, "agent-1");
     const second = await deliverOne(h, "agent-1", `${CANARY}-second`);
@@ -785,7 +868,7 @@ describe("a release or a look under way when the stop begins", () => {
     h.registry.messageSent(second);
     h.registry.turnStarted("agent-1");
     const { held, at } = holdRelease(h);
-    const ended = h.registry.turnEnded("agent-1");
+    const ended = h.registry[method]("agent-1");
     await vi.waitFor(() => expect(at.reached).toBe(true), { timeout: 5000 });
     // The first set's removal was under way when the stop began, and its sweep took the set.
     expect(await stopMidway(h, first, held, () => ended)).toEqual({ memory: "stop", saved: "stop" });
