@@ -102,6 +102,12 @@ What you enter leaves the app only sealed to a one-time key of the request. The 
 
 Running from a checkout, the tests, the documents they hold to the code, and releases: [CONTRIBUTING.md](CONTRIBUTING.md). [CHANGELOG.md](CHANGELOG.md) lists what each release changed.
 
+## Other plugins by dutchakdev
+
+- [Account Switcher](https://paseo.sh/plugins/dutchakdev/account-switcher) ([source](https://github.com/dutchakdev/paseo-plugin-account-switcher)): several Claude and ChatGPT/Codex subscription accounts in Paseo, with an account per agent, switching of an existing chat, and every account's limits.
+- [Machine Status](https://paseo.sh/plugins/dutchakdev/machine-status) ([source](https://github.com/dutchakdev/paseo-plugin-machine-status)): load, memory, disk, the ports and processes your agents started, and Docker on the daemon's Mac, with dev-cache cleanup and confirmed process stops.
+- [Mermaid](https://paseo.sh/plugins/dutchakdev/mermaid) ([source](https://github.com/dutchakdev/paseo-plugin-mermaid)): draws Mermaid flowcharts and sequence diagrams from chat messages and `.mmd` files, on desktop and mobile.
+
 ## License
 
 MIT, see [LICENSE](LICENSE).

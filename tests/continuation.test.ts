@@ -939,6 +939,31 @@ describe("Outbox", () => {
     });
   });
 
+  it.each(["throws", "rejects"])("continues serving without retrying when the failed-send callback %s", async (how) => {
+    const { file, finished, resolve, clock } = fixture();
+    finished(1);
+    finished(2, "agent-2");
+    const told: OutboxItem[] = [];
+    const outbox = new Outbox(file, resolve, {
+      now: () => clock.now,
+      onSendFailed: (failed) => {
+        told.push(failed);
+        if (how === "throws") throw new Error("callback failed");
+        return Promise.reject(new Error("callback failed"));
+      },
+    });
+    const idle = port({ fail: true });
+    outbox.attach(idle);
+    await outbox.enqueue(item(1));
+    await outbox.enqueue(item(2, { agentId: "agent-2" }));
+    await expect(outbox.flush()).resolves.toBeUndefined();
+    expect(told).toEqual([item(1), item(2, { agentId: "agent-2" })]);
+    expect(idle.calls).toHaveLength(2);
+    expect(onDisk(file)).toEqual([]);
+    await outbox.flush();
+    expect(idle.calls).toHaveLength(2);
+  });
+
   describe("a port that stops answering", () => {
     it("does not freeze the queue when a send never returns: the item is not resent and the next agent is served", async () => {
       const { outbox, finished } = fixture(30);

@@ -778,6 +778,16 @@ export class Registry {
   }
 
   /**
+   * The send `messageSent` announced failed, so no turn is known to be the one the message starts, and a later turn of the
+   * agent must not take a set it was never told of. The mark goes, armed or not, and the set stays for the agent to ask
+   * after (`request_status`) until its deadline. A request that is no longer delivered, and an unknown one, are left alone.
+   */
+  messageSendFailed(requestId: string): void {
+    if (this.records.get(requestId)?.state !== "delivered") return;
+    this.turns.delete(requestId);
+  }
+
+  /**
    * A turn of the agent began. Each of its requests whose message was handed over before this is armed: the end of this
    * turn takes its set. A request whose message is handed over later waits for a turn that begins after that, so a late
    * end of the turn before the message does not take the set early.
