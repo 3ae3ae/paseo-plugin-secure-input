@@ -171,6 +171,9 @@ export function assemble(options: PluginOptions): Parts {
     onSend: (item) => {
       if (item.kind === "continuation") registry.messageSent(item.requestId);
     },
+    onSendFailed: (item) => {
+      if (item.kind === "continuation") registry.messageSendFailed(item.requestId);
+    },
   });
   const runtime: Runtime = new Runtime(outbox, { callTimeoutMs: options.daemonCallTimeoutMs, report });
   const registry: Registry = new Registry({

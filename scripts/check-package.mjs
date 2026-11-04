@@ -1,7 +1,8 @@
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { readFileSync, statSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import { isDeepStrictEqual } from "node:util";
 import { inspectShrinkwrap } from "./shrinkwrap.mjs";
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -30,6 +31,23 @@ export function inspectPackage({ files, manifest, overview, sourceManifest, pack
   return problems;
 }
 
+/**
+ * The packed files that are not what the checkout holds, byte for byte. npm writes the shrinkwrap at pack time, and
+ * `inspectShrinkwrap` holds it to the lockfile; `package.json` is compared as JSON, since npm may rewrite its form.
+ */
+export function compareFiles(files, readPacked, readSource) {
+  const problems = [];
+  for (const file of files) {
+    if (file === "npm-shrinkwrap.json") continue;
+    const packed = readPacked(file);
+    const source = readSource(file);
+    if (!source || (file === "package.json" ? !isDeepStrictEqual(JSON.parse(packed), JSON.parse(source)) : !packed.equals(source))) {
+      problems.push(`${file} differs from the source`);
+    }
+  }
+  return problems;
+}
+
 function tar(tarball, ...args) {
   return execFileSync("tar", [...args, tarball], { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
 }
@@ -50,9 +68,14 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     packageJson: JSON.parse(extract("package.json") ?? "null"),
     shrinkwrap: JSON.parse(extract("npm-shrinkwrap.json") ?? "null"),
   });
+  problems.push(...compareFiles(
+    files.filter((file) => file && !file.endsWith("/")),
+    (file) => execFileSync("tar", ["-xOzf", tarball, `package/${file}`], { maxBuffer: 64 * 1024 * 1024 }),
+    (file) => (statSync(join(root, file), { throwIfNoEntry: false })?.isFile() ? readFileSync(join(root, file)) : undefined),
+  ));
   if (problems.length) {
     console.error(`${tarball}:\n${problems.map((problem) => `  ${problem}`).join("\n")}`);
     process.exit(1);
   }
-  console.log(`${tarball}: ${files.length} files, manifest, overview and shrinkwrap as expected.`);
+  console.log(`${tarball}: ${files.length} files, content, manifest, overview and shrinkwrap as expected.`);
 }
