@@ -5,6 +5,7 @@
 ### Changed
 
 - The skill tells an agent that delegates a move to keep it inside its own turn, because the files go when that turn ends, even while a subagent is still working.
+- The README and the plugin directory listing link to the author's other Paseo plugins.
 
 ### Fixed
 

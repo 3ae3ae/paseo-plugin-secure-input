@@ -26,3 +26,9 @@ The plugin writes directories of mode 0700 with files of mode 0600, one per key 
 ## What it does not protect against
 
 While a file exists, any process of your OS user can read it, the agent included, and on Paseo 0.14.0-beta.1 a local process with access to the daemon can impersonate an agent. What keeps a value out of the model is the skill's rule and the plugin leaving values out of its outputs. [SECURITY.md](https://github.com/dutchakdev/paseo-plugin-secure-input/blob/main/SECURITY.md) describes the threat model and known limitations.
+
+## Other plugins by dutchakdev
+
+- [Account Switcher](https://paseo.sh/plugins/dutchakdev/account-switcher): several Claude and ChatGPT/Codex subscription accounts in Paseo, with an account per agent, switching of an existing chat, and every account's limits.
+- [Machine Status](https://paseo.sh/plugins/dutchakdev/machine-status): load, memory, disk, the ports and processes your agents started, and Docker on the daemon's Mac, with dev-cache cleanup and confirmed process stops.
+- [Mermaid](https://paseo.sh/plugins/dutchakdev/mermaid): draws Mermaid flowcharts and sequence diagrams from chat messages and `.mmd` files, on desktop and mobile.
