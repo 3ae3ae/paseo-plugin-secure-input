@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Changed
+
+- The skill tells an agent that delegates a move to keep it inside its own turn, because the files go when that turn ends, even while a subagent is still working.
+
 ### Fixed
 
 - When a delivery message cannot be sent, the agent's next turn no longer deletes files it was never told about. They stay until their deadline, and `request_status` gives their paths.
