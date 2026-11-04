@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error The packaging helpers are plain ESM without declarations.
-import { inspectPackage } from "../scripts/check-package.mjs";
+import { compareFiles, inspectPackage } from "../scripts/check-package.mjs";
 // @ts-expect-error The packaging helpers are plain ESM without declarations.
 import { productionShrinkwrap } from "../scripts/shrinkwrap.mjs";
 
@@ -18,6 +18,22 @@ const inspect = (overrides: Record<string, unknown>) =>
   inspectPackage({ files, manifest: sourceManifest, overview: read("OVERVIEW.md"), sourceManifest, packageJson, shrinkwrap, ...overrides });
 
 describe("packed tarball", () => {
+  it("compares packed files with the source as bytes, except the generated shrinkwrap", () => {
+    const source: Record<string, Buffer> = {
+      "server/paseo/plugin.ts": Buffer.from("source"),
+      "assets/icon.png": Buffer.from([0xff, 0x00]),
+      "package.json": Buffer.from('{"name":"test","version":"1"}'),
+      "npm-shrinkwrap.json": Buffer.from("source shrinkwrap"),
+    };
+    const packed = { ...source, "package.json": Buffer.from('{ "version": "1", "name": "test" }'), "npm-shrinkwrap.json": Buffer.from("packed shrinkwrap") };
+    const compare = (contents: Record<string, Buffer>) => compareFiles(Object.keys(contents), (file: string) => contents[file], (file: string) => source[file]);
+    expect(compare(packed)).toEqual([]);
+    expect(compare({ ...packed, "server/paseo/plugin.ts": Buffer.from("changed") })).toEqual(["server/paseo/plugin.ts differs from the source"]);
+    expect(compare({ ...packed, "assets/icon.png": Buffer.from([0xfe, 0x00]) })).toEqual(["assets/icon.png differs from the source"]);
+    expect(compare({ ...packed, "server/extra.ts": Buffer.from("extra") })).toEqual(["server/extra.ts differs from the source"]);
+    expect(compare({ ...packed, "package.json": Buffer.from('{"name":"changed"}') })).toEqual(["package.json differs from the source"]);
+  });
+
   it("accepts the repository's own manifest, overview and shrinkwrap", () => {
     expect(inspect({})).toEqual([]);
   });
