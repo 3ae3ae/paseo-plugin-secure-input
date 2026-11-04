@@ -1,10 +1,12 @@
 # Changelog
 
-## Unreleased
+## 0.3.0 - 2026-11-04
+
+Thanks to Bae Seongmin ([@3ae3ae](https://github.com/3ae3ae)), who found and fixed four of the five changes below.
 
 ### Changed
 
-- Archiving an agent closes its requests. A pending request stops waiting and its key is wiped, and delivered files are deleted at once instead of at their deadline. A later submission or expiry no longer leaves a message waiting for that agent.
+- Archiving an agent closes its requests. A pending request stops waiting and its key is wiped, and delivered files are deleted at once instead of at their deadline. A later submission or expiry no longer leaves a message waiting for that agent. A 0.2.x plugin started after this drops the requests closed this way from its history; their files are already gone.
 - The skill tells an agent that delegates a move to keep it inside its own turn, because the files go when that turn ends, even while a subagent is still working.
 - The README and the plugin directory listing link to the author's other Paseo plugins.
 
