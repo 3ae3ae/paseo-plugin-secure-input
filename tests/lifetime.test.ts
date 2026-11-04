@@ -224,6 +224,23 @@ describe("the end of the turn the message started", () => {
     expect(h.registry.get(quiet)?.state).toBe("delivered");
     expect(readdirSync(h.dropRoot)).toEqual([`si-secret-${quiet}`]);
   });
+
+  it("leaves a request that is not delivered, or is unknown, alone after a failed send", async () => {
+    const h = harness();
+    const pending = (await h.registry.create(agent(), asking)).requestId;
+    const delivered = await deliverOne(h, "agent-2");
+    h.registry.messageSent(delivered);
+    h.registry.messageSendFailed(pending);
+    h.registry.messageSendFailed(idOf(9));
+    expect(h.registry.get(pending)?.state).toBe("pending");
+    expect(h.registry.get(idOf(9))).toBeUndefined();
+    h.registry.turnStarted("agent-2");
+    await h.registry.turnEnded("agent-2");
+    expect(h.registry.get(delivered)).toMatchObject({ state: "released", releasedBy: "turn" });
+    expect(existsSync(setPath(h.dropRoot, delivered))).toBe(false);
+    h.registry.messageSendFailed(delivered);
+    expect(h.registry.get(delivered)).toMatchObject({ state: "released", releasedBy: "turn" });
+  });
 });
 
 describe("the end of the turn the message started, while the queue is busy", () => {

@@ -2058,6 +2058,84 @@ describe("lifetimes through the hooks", () => {
     expect(plugin.status.lastHookFailure).toBeNull();
   });
 
+  it.each(["before", "after"])("keeps the set when a turn starts %s the send rejects, until its deadline", async (when) => {
+    const { plugin, daemon, tool, requestId, set } = await delivered({}, "running");
+    const start = () => plugin.emit("agent.turn_started", { agent: { id: "agent-1" }, turnId: "t-1" }, daemon.port);
+    const send = vi.spyOn(plugin.runtime, "send").mockImplementationOnce(async () => {
+      if (when === "before") await start();
+      throw new Error("send failed");
+    });
+    (daemon.agents["agent-1"] as FakeAgent).status = "idle";
+    await plugin.runtime.flushAll();
+    if (when === "after") await start();
+    await plugin.emit("agent.turn_ended", turnEnded("t-1"), daemon.port);
+    await plugin.runtime.settled();
+    expect({ state: plugin.registry.get(requestId)?.state, exists: existsSync(join(set, "A")) }).toEqual({ state: "delivered", exists: true });
+    const deleteBy = plugin.registry.get(requestId)?.deleteBy as number;
+    expect(JSON.parse((await tool("request_status", { requestId })).text)).toMatchObject({
+      state: "delivered",
+      files: { A: join(set, "A") },
+      deleteBy: new Date(deleteBy).toISOString(),
+    });
+    await plugin.runtime.flushAll();
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(await plugin.outbox.pending()).toBe(0);
+    const now = vi.spyOn(Date, "now").mockReturnValue(deleteBy);
+    try {
+      await plugin.registry.expire();
+      expect(plugin.registry.get(requestId)).toMatchObject({ state: "released", releasedBy: "time" });
+      expect(existsSync(set)).toBe(false);
+    } finally {
+      now.mockRestore();
+    }
+  });
+
+  it("keeps the turn mark when a send times out, even if it rejects later", async () => {
+    const { plugin, daemon, requestId, set } = await delivered({}, "running");
+    let began!: () => void;
+    const sending = new Promise<void>((resolve) => (began = resolve));
+    let reject!: (error: Error) => void;
+    const send = vi.spyOn(plugin.runtime, "send").mockImplementationOnce(() => {
+      began();
+      return new Promise<void>((_, fail) => (reject = fail));
+    });
+    (daemon.agents["agent-1"] as FakeAgent).status = "idle";
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      const flushing = plugin.runtime.flushAll();
+      await sending;
+      await vi.advanceTimersByTimeAsync(PORT_TIMEOUT_MS);
+      await flushing;
+      reject(new Error("late send failure"));
+      await Promise.resolve();
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(plugin.registry.get(requestId)?.state).toBe("delivered");
+    expect(existsSync(set)).toBe(true);
+    await plugin.emit("agent.turn_started", { agent: { id: "agent-1" }, turnId: "t-1" }, daemon.port);
+    await plugin.emit("agent.turn_ended", turnEnded("t-1"), daemon.port);
+    await plugin.runtime.settled();
+    expect(plugin.registry.get(requestId)).toMatchObject({ state: "released", releasedBy: "turn" });
+    expect(existsSync(set)).toBe(false);
+    expect(send).toHaveBeenCalledTimes(1);
+  });
+
+  it("marks a successful send before the turn it starts can begin", async () => {
+    const { plugin, daemon, requestId, set } = await delivered({}, "running");
+    const send = vi.spyOn(plugin.runtime, "send").mockImplementationOnce(async () => {
+      await plugin.emit("agent.turn_started", { agent: { id: "agent-1" }, turnId: "t-1" }, daemon.port);
+    });
+    (daemon.agents["agent-1"] as FakeAgent).status = "idle";
+    await plugin.runtime.flushAll();
+    expect(existsSync(set)).toBe(true);
+    await plugin.emit("agent.turn_ended", turnEnded("t-1"), daemon.port);
+    await plugin.runtime.settled();
+    expect(plugin.registry.get(requestId)).toMatchObject({ state: "released", releasedBy: "turn" });
+    expect(existsSync(set)).toBe(false);
+    expect(send).toHaveBeenCalledTimes(1);
+  });
+
   it("turns a message that waited past the deadline for a busy agent into the 'deleted after 15 minutes' message, sent once", async () => {
     const { plugin, daemon, requestId, set } = await delivered({ dropTtlMs: 40 }, "running");
     expect(daemon.sent).toEqual([]);

@@ -103,6 +103,8 @@ export interface OutboxOptions {
    * with changes nothing here: the send is attempted all the same.
    */
   onSend?(item: OutboxItem): void;
+  /** Told of an item whose send was refused within its bound; not of one that went unanswered. What it does, throws or rejects with changes nothing here. */
+  onSendFailed?(item: OutboxItem): void;
 }
 
 const ItemSchema = z
@@ -224,6 +226,7 @@ export class Outbox {
   private readonly portTimeoutMs: number;
   private readonly flushBudgetMs: number;
   private readonly onSend: ((item: OutboxItem) => void) | undefined;
+  private readonly onSendFailed: ((item: OutboxItem) => void) | undefined;
 
   constructor(
     private readonly file: string,
@@ -234,6 +237,7 @@ export class Outbox {
     this.portTimeoutMs = options.portTimeoutMs ?? PORT_TIMEOUT_MS;
     this.flushBudgetMs = options.flushBudgetMs ?? FLUSH_BUDGET_MS;
     this.onSend = options.onSend;
+    this.onSendFailed = options.onSendFailed;
   }
 
   private serial<T>(task: () => Promise<T>): Promise<T> {
@@ -402,6 +406,16 @@ export class Outbox {
     }
   }
 
+  /** Tells `onSendFailed` of an item whose send failed. Never throws, and leaves no rejection of an async one unhandled. */
+  private tellSendFailed(item: OutboxItem): void {
+    try {
+      const result: unknown = this.onSendFailed?.({ agentId: item.agentId, requestId: item.requestId, kind: item.kind });
+      if (typeof (result as PromiseLike<unknown> | undefined)?.then === "function") (result as PromiseLike<unknown>).then(undefined, () => undefined);
+    } catch {
+      // What whoever is told does with it changes nothing: the message is not sent again either way.
+    }
+  }
+
   /** The text for an item, or null: no record, nothing to say, another agent's record, or a resolver that fails. */
   private text(item: OutboxItem): string | null {
     try {
@@ -547,6 +561,7 @@ export class Outbox {
         await this.ask(() => port.send(item.agentId, text));
       } catch {
         // The send failed. Whether the agent got the message is not known, and it is not sent again.
+        this.tellSendFailed(item);
       }
       // No answer in time is an unknown outcome: the item is already out, and is not sent again either.
       return;
